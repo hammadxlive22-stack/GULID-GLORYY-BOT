@@ -25,7 +25,11 @@ from google.protobuf.json_format import MessageToDict
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MAHIN_CODEX", "index.html")
+# ═══════════════════════════════════════════════════════════════════
+#  DRIFT Folder — Saari HTML files yahan se serve hongi
+# ═══════════════════════════════════════════════════════════════════
+DRIFT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "DRIFT")
+TEMPLATE_PATH = os.path.join(DRIFT_DIR, "index.html")
 
 OB = "OB55"
 KEY = bytes([89,103,38,116,99,37,68,69,117,104,54,37,90,99,94,56])
@@ -78,12 +82,11 @@ def get_server_url(region):
 def fetch_single_clan(clan_id, region, token_cache):
     server_base, host = get_server_info(region)
     url = f"{server_base}/GetClanInfoByClanID"
-
-    try:  
-        my_data = encode_id_clan_pb2.MyData()  
-        my_data.field1 = int(clan_id)  
-        my_data.field2 = 1  
-        payload = encrypt_payload(my_data.SerializeToString())  
+    try:
+        my_data = encode_id_clan_pb2.MyData()
+        my_data.field1 = int(clan_id)
+        my_data.field2 = 1
+        payload = encrypt_payload(my_data.SerializeToString())
     except Exception as e:
         return {"clan_id": clan_id, "error": f"Protobuf failed: {str(e)}"}
 
@@ -92,11 +95,9 @@ def fetch_single_clan(clan_id, region, token_cache):
         token = creds.get('token')
         if not token:
             continue
-
         headers = GAME_HEADERS.copy()
         headers["Authorization"] = f"Bearer {token}" if not token.startswith("Bearer ") else token
         headers["Host"] = host
-
         try:
             res = requests.post(url, headers=headers, data=payload, verify=False, timeout=15.0)
             if res.status_code == 200:
@@ -107,7 +108,7 @@ def fetch_single_clan(clan_id, region, token_cache):
             else:
                 response = res
                 break
-        except Exception as ex:
+        except Exception:
             continue
 
     if not response or response.status_code != 200:
@@ -116,10 +117,10 @@ def fetch_single_clan(clan_id, region, token_cache):
     full_response = {}
     resp = None
     try:
-        resp = data_pb2.response()  
-        resp.ParseFromString(response.content)  
+        resp = data_pb2.response()
+        resp.ParseFromString(response.content)
         full_response = MessageToDict(resp, preserving_proto_field_name=True)
-    except Exception as e:
+    except Exception:
         pass
 
     guild_xp = 0
@@ -138,7 +139,7 @@ def fetch_single_clan(clan_id, region, token_cache):
         "clan_level": getattr(resp, "rank", 4) if resp else full_response.get("rank", 4),
         "clan_name": getattr(resp, "special_code", None) if resp else (full_response.get("special_code") or f"Guild_{clan_id}"),
         "current_officer": full_response.get("current_officer", 0),
-        "current_members": full_response.get("current_members", 1),                
+        "current_members": full_response.get("current_members", 1),
         "max_members": full_response.get("max_members", 50),
         "Total guild xp": int(guild_xp),
         "welcome_message": getattr(resp, "welcome_message", "") if resp else full_response.get("welcome_message", ""),
@@ -179,6 +180,7 @@ EXP_TABLE: Dict[int, int] = {
 }
 
 async def handle_index(request: web.Request) -> web.Response:
+    """Bot dashboard — DRIFT/index.html"""
     content = FALLBACK_INDEX_HTML
     if os.path.exists(TEMPLATE_PATH):
         try:
@@ -205,7 +207,7 @@ async def handle_get_stats(request: web.Request) -> web.Response:
     return web.json_response({
         "total_accounts": len(bot_state.accounts),
         "total_matches": bot_state.total_matches,
-        "total_matches_started": bot_state.total_matches_started,   # 🔥 NEW
+        "total_matches_started": bot_state.total_matches_started,
         "total_active_matches": total_active_matches,
         "total_gained_exp": total_gained,
         "exp_per_hour": exp_per_hour,
@@ -219,12 +221,10 @@ def calculate_level_progress(level: int, current_exp: int) -> Dict[str, Any]:
     next_level = min(100, level + 1)
     base_exp = EXP_TABLE.get(level, 0)
     target_exp = EXP_TABLE.get(next_level, base_exp + 50000)
-    
     needed_for_level = max(1, target_exp - base_exp)
     earned_in_level = max(0, current_exp - base_exp)
     remaining_exp = max(0, target_exp - current_exp)
     progress_pct = min(100.0, max(0.0, (earned_in_level / needed_for_level) * 100.0))
-
     return {
         "next_level": next_level,
         "base_exp": base_exp,
@@ -241,13 +241,13 @@ class BotState:
         self.logs: List[Dict[str, Any]] = []
         self.max_logs = 200
         self.total_matches = 0
-        self.total_matches_started = 0      # 🔥 NEW
+        self.total_matches_started = 0
         self.total_gained_exp = 0
         self.start_time = time.time()
         self.account_workers: Dict[str, asyncio.Task] = {}
-        self.account_token_map: Dict[str, str] = {}  # uid -> token or token_prefix -> uid
-        self.auth_to_game_id: Dict[str, str] = {}   # guest login uid -> in-game account id
-        self.game_to_auth_id: Dict[str, str] = {}   # in-game account id -> guest login uid
+        self.account_token_map: Dict[str, str] = {}
+        self.auth_to_game_id: Dict[str, str] = {}
+        self.game_to_auth_id: Dict[str, str] = {}
         self.paused_accounts: set = set()
         self.refresh_callbacks: Dict[str, Any] = {}
         self.account_credentials: Dict[str, Dict[str, Any]] = {}
@@ -277,7 +277,6 @@ class BotState:
             mapped = self.account_token_map[uid_str]
             candidates.add(str(mapped))
             candidates.add(str(mapped)[:16])
-
         for c in list(candidates):
             writers = list(self.active_writers.get(c, []))
             for w in writers:
@@ -319,7 +318,6 @@ class BotState:
                 self.account_token_map[auth_uid_str] = token
 
         prog = calculate_level_progress(level or 1, exp)
-
         lvl_val = level or 1
         acc_mode = "BR" if lvl_val < 3 else "LONE_WOLF"
         acc_mode_label = "Battle Royale (Lvl < 3)" if lvl_val < 3 else "Lone Wolf (Lvl 3+)"
@@ -416,7 +414,6 @@ class BotState:
             candidates.add(self.auth_to_game_id[uid_str])
         if uid_str in self.game_to_auth_id:
             candidates.add(self.game_to_auth_id[uid_str])
-
         target_acc = None
         target_key = uid_str
         for c in candidates:
@@ -424,7 +421,6 @@ class BotState:
                 target_acc = self.accounts[c]
                 target_key = c
                 break
-
         is_now_paused = not self.is_paused(uid_str)
         if is_now_paused:
             for c in candidates:
@@ -458,7 +454,6 @@ class BotState:
                     asyncio.create_task(self.refresh_callbacks["on_pause_toggle"](target_key, False))
                 except Exception:
                     pass
-
         return is_now_paused
 
     def toggle_pause_all(self) -> bool:
@@ -481,11 +476,9 @@ class BotState:
             if level is not None and level > 0:
                 acc["level"] = level
             acc["gained_exp"] = max(0, current_exp - acc["initial_exp"])
-            
             current_lvl = acc["level"]
             acc["mode"] = "BR" if current_lvl < 3 else "LONE_WOLF"
             acc["mode_label"] = "Battle Royale (Lvl < 3)" if current_lvl < 3 else "Lone Wolf (Lvl 3+)"
-
             prog = calculate_level_progress(acc["level"], current_exp)
             acc["next_level"] = prog["next_level"]
             acc["remaining_exp"] = prog["remaining_exp"]
@@ -494,22 +487,11 @@ class BotState:
             acc["earned_in_level"] = prog["earned_in_level"]
             acc["progress_pct"] = prog["progress_pct"]
             acc["last_updated"] = time.strftime("%H:%M:%S")
-
-            # Check for Level 2 -> 3 Mode Transition
             if old_level < 3 and current_lvl >= 3:
-                self.log(
-                    f"🎉 LEVEL UP! UID {uid_str} ({acc['nickname']}) reached Level {current_lvl}! Switching from Battle Royale to Lone Wolf mode!",
-                    "success",
-                    uid_str
-                )
-
+                self.log(f"🎉 LEVEL UP! UID {uid_str} ({acc['nickname']}) reached Level {current_lvl}!", "success", uid_str)
             diff = current_exp - old_exp
             if diff > 0:
-                self.log(
-                    f"★ UID {uid_str} ({acc['nickname']}) gained +{diff:,} EXP | Level {acc['level']} [{acc['mode']}] ({prog['progress_pct']}% - {prog['remaining_exp']:,} EXP to Lvl {prog['next_level']})",
-                    "success",
-                    uid_str
-                )
+                self.log(f"★ UID {uid_str} ({acc['nickname']}) gained +{diff:,} EXP | Level {acc['level']} [{acc['mode']}]", "success", uid_str)
             self.recalc_totals()
 
     def get_account_level(self, uid: str) -> int:
@@ -535,9 +517,7 @@ class BotState:
                 self.accounts[uid_str]["active_matches"] = active_matches
             self.accounts[uid_str]["last_updated"] = time.strftime("%H:%M:%S")
 
-
     def increment_match_started(self):
-        """Track total matches STARTED (not completed)"""
         self.total_matches_started += 1
 
     def increment_match(self, uid: str):
@@ -564,30 +544,52 @@ FALLBACK_INDEX_HTML = """<!DOCTYPE html>
 </body>
 </html>"""
 
-async def handle_index(request: web.Request) -> web.Response:
-    content = FALLBACK_INDEX_HTML
-    if os.path.exists(TEMPLATE_PATH):
-        try:
-            with open(TEMPLATE_PATH, "r", encoding="utf-8") as f:
-                content = f.read()
-        except Exception:
-            pass
-    return web.Response(text=content, content_type="text/html", charset="utf-8")
 
-# ==================== CLAN JOIN API ENDPOINT (AIOHTTP) ====================
+# ═══════════════════════════════════════════════════════════════════
+#  DRIFT HTML PAGE HANDLERS
+# ═══════════════════════════════════════════════════════════════════
+async def serve_drift_file(filename: str):
+    """Helper — DRIFT folder se koi bhi HTML file serve karo"""
+    file_path = os.path.join(DRIFT_DIR, filename)
+    if not os.path.isfile(file_path):
+        return web.Response(status=404, text=f"DRIFT/{filename} not found")
+    return web.FileResponse(file_path)
+
+
+async def handle_ffglory(request: web.Request) -> web.Response:
+    """Landing page →  /  →  DRIFT/ffglory.html"""
+    return await serve_drift_file("ffglory.html")
+
+
+async def handle_login_page(request: web.Request) -> web.Response:
+    """Login page →  /login  →  DRIFT/login.html"""
+    return await serve_drift_file("login.html")
+
+
+async def handle_client_page(request: web.Request) -> web.Response:
+    """User dashboard →  /client  →  DRIFT/client.html"""
+    return await serve_drift_file("client.html")
+
+
+async def handle_bot_page(request: web.Request) -> web.Response:
+    """Bot admin →  /bot  →  DRIFT/index.html"""
+    return await serve_drift_file("index.html")
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  BOT APIs (unchanged)
+# ═══════════════════════════════════════════════════════════════════
 async def handle_api_clan_join(request: web.Request) -> web.Response:
     try:
         data = await request.json()
         clan_id = data.get('clan_id')
         if not clan_id:
             return web.json_response({'error': 'Clan ID is required'}, status=400)
-        
         try:
             with open("token_cache.json", "r", encoding="utf-8") as f:
                 token_cache = json.load(f)
         except Exception as e:
             return web.json_response({'error': f'Failed to load token_cache.json: {str(e)}'}, status=500)
-
         success_count = 0
         total_accounts = 0
         for uid, creds in token_cache.items():
@@ -595,7 +597,6 @@ async def handle_api_clan_join(request: web.Request) -> web.Response:
             region = creds.get('region', 'IND')
             if not jwt_token:
                 continue
-            
             total_accounts += 1
             try:
                 status_code, text_resp = await request_clan_async(jwt_token, clan_id, region)
@@ -603,14 +604,13 @@ async def handle_api_clan_join(request: web.Request) -> web.Response:
                     success_count += 1
             except Exception:
                 pass
-
         return web.json_response({
             'message': f'Clan join requests sent successfully for {success_count} / {total_accounts} accounts!'
         }, status=200)
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500)
 
-# ==================== GUILD INFO API ENDPOINT (AIOHTTP) ====================
+
 GUILD_CACHE_FILE = "guild_exp_cache.json"
 
 def load_guild_cache():
@@ -632,16 +632,10 @@ def save_guild_cache(cache_data):
 def get_persisted_baseline_xp(clan_id, current_xp):
     cache = load_guild_cache()
     clan_key = str(clan_id)
-    
     if clan_key not in cache or "old_xp" not in cache[clan_key]:
-        cache[clan_key] = {
-            "old_xp": current_xp,
-            "live_xp": current_xp,
-            "gained_exp": 0
-        }
+        cache[clan_key] = {"old_xp": current_xp, "live_xp": current_xp, "gained_exp": 0}
         save_guild_cache(cache)
         return current_xp
-    
     return int(cache[clan_key]["old_xp"])
 
 async def handle_api_guild_info(request: web.Request) -> web.Response:
@@ -649,56 +643,40 @@ async def handle_api_guild_info(request: web.Request) -> web.Response:
         clan_id = request.query.get('guild_id') or request.query.get('clan_uid') or request.query.get('clan_id')
         region = (request.query.get('region') or 'IND').upper()
         api_key = request.query.get('key')
-
         if not api_key or api_key != "XEROX_MODS":
             return web.json_response({"error": "Unauthorized: Invalid or missing API key"}, status=401)
-
         if not clan_id:
             return web.json_response({"error": "guild_id is required"}, status=400)
-
         try:
             with open("token_cache.json", "r", encoding="utf-8") as f:
                 token_cache = json.load(f)
         except Exception as e:
             return web.json_response({"error": "Failed to load token_cache.json", "details": str(e)}, status=503)
-
         if not token_cache:
             return web.json_response({"error": "token_cache.json is empty"}, status=503)
-
         clan_data = fetch_single_clan(clan_id, region, token_cache)
         if "error" in clan_data:
             return web.json_response(clan_data, status=500)
-
         current_xp = int(clan_data.get("Total guild xp") or clan_data.get("xp") or 0)
         baseline_xp = get_persisted_baseline_xp(clan_id, current_xp)
         gained_exp = current_xp - baseline_xp
-
-        # Cache update
         cache = load_guild_cache()
-        cache[str(clan_id)] = {
-            "old_xp": baseline_xp,
-            "live_xp": current_xp,
-            "gained_exp": gained_exp
-        }
+        cache[str(clan_id)] = {"old_xp": baseline_xp, "live_xp": current_xp, "gained_exp": gained_exp}
         save_guild_cache(cache)
-
         clan_data["old_xp"] = baseline_xp
         clan_data["gained_exp"] = gained_exp
-
         api_response_body = {
             "DEVLOVER": "XEROX_MODS",
             "TELEGRAM": "SEXTYMODS",
             "TIME AND DATE": time.strftime("%I:%M %p, %A, %B %d, %Y"),
             "clan_basic_info": clan_data
         }
-
-        return web.json_response({  
-            "status": "success",  
-            "requested_region": region,  
-            "queried_clan_id": clan_id,  
-            "api_response": api_response_body  
+        return web.json_response({
+            "status": "success",
+            "requested_region": region,
+            "queried_clan_id": clan_id,
+            "api_response": api_response_body
         }, status=200)
-
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 
@@ -714,31 +692,24 @@ async def handle_add_account(request: web.Request) -> web.Response:
                     existing = json.load(f)
             except Exception:
                 existing = []
-
         if "uid" in data and "password" in data:
             uid = str(data["uid"]).strip()
             pwd = str(data["password"]).strip()
             if not uid or not pwd:
                 return web.json_response({"status": "error", "error": "UID and Password are required"})
-
-            # Cancel previous worker if already running for this UID
             if uid in bot_state.account_workers:
                 try:
                     bot_state.account_workers[uid].cancel()
                 except Exception:
                     pass
                 bot_state.account_workers.pop(uid, None)
-
             existing = [acc for acc in existing if str(acc.get("uid", "")) != uid]
             existing.append({"uid": uid, "password": pwd})
             identifier = uid
-
         elif "token" in data:
             token = str(data["token"]).strip()
             if not token:
                 return web.json_response({"status": "error", "error": "Token is required"})
-
-            # Cancel worker if token prefix matches
             tok_key = token[:16]
             for k in list(bot_state.account_workers.keys()):
                 if k == tok_key or k.startswith(tok_key[:10]) or tok_key.startswith(k[:10]):
@@ -747,22 +718,16 @@ async def handle_add_account(request: web.Request) -> web.Response:
                     except Exception:
                         pass
                     bot_state.account_workers.pop(k, None)
-
             existing = [acc for acc in existing if acc.get("token", "") != token]
             existing.append({"token": token})
             identifier = f"Token_{token[:8]}..."
         else:
             return web.json_response({"status": "error", "error": "Invalid payload"})
-
         with open(accounts_file, "w", encoding="utf-8") as f:
             json.dump(existing, f, indent=2)
-
         bot_state.log(f"New account added to rotation: {identifier}", "success")
-        
-        # Trigger dynamic worker launch in Main.py
         if "on_account_added" in bot_state.refresh_callbacks:
             asyncio.create_task(bot_state.refresh_callbacks["on_account_added"](data))
-
         return web.json_response({"status": "ok"})
     except Exception as e:
         return web.json_response({"status": "error", "error": str(e)})
@@ -775,22 +740,16 @@ async def handle_delete_account(request: web.Request) -> web.Response:
         req_auth_uid = str(data.get("auth_uid", "")).strip()
         if not req_uid and not req_auth_uid:
             return web.json_response({"status": "error", "error": "UID is required"})
-
-        # Collect ALL possible candidate identifiers for this account
         candidate_ids = set()
         if req_uid:
             candidate_ids.add(req_uid)
         if req_auth_uid:
             candidate_ids.add(req_auth_uid)
-
-        # Check game_to_auth and auth_to_game mappings
         for cid in list(candidate_ids):
             if cid in bot_state.game_to_auth_id:
                 candidate_ids.add(str(bot_state.game_to_auth_id[cid]))
             if cid in bot_state.auth_to_game_id:
                 candidate_ids.add(str(bot_state.auth_to_game_id[cid]))
-
-        # Inspect bot_state.accounts
         target_tokens = set()
         for cid in list(candidate_ids):
             acc_info = bot_state.accounts.get(cid, {})
@@ -802,8 +761,6 @@ async def handle_delete_account(request: web.Request) -> web.Response:
                 t = acc_info.get("token") or acc_info.get("access_token")
                 if t:
                     target_tokens.add(str(t))
-
-        # Inspect bot_state.account_credentials
         for cid in list(candidate_ids):
             creds = bot_state.account_credentials.get(cid, {})
             if creds:
@@ -814,8 +771,6 @@ async def handle_delete_account(request: web.Request) -> web.Response:
                 t = creds.get("token") or creds.get("access_token") or creds.get("auth_token")
                 if t:
                     target_tokens.add(str(t))
-
-        # Also clean token_cache.json if entries match
         token_cache_file = "token_cache.json"
         if os.path.exists(token_cache_file):
             try:
@@ -828,10 +783,8 @@ async def handle_delete_account(request: web.Request) -> web.Response:
                     v_auth_uid = str(v.get("auth_uid", ""))
                     if k_str in candidate_ids or v_acc_id in candidate_ids or v_auth_uid in candidate_ids:
                         candidate_ids.add(k_str)
-                        if v_acc_id:
-                            candidate_ids.add(v_acc_id)
-                        if v_auth_uid:
-                            candidate_ids.add(v_auth_uid)
+                        if v_acc_id: candidate_ids.add(v_acc_id)
+                        if v_auth_uid: candidate_ids.add(v_auth_uid)
                         del tcache[k]
                         dirty_cache = True
                 if dirty_cache:
@@ -839,8 +792,6 @@ async def handle_delete_account(request: web.Request) -> web.Response:
                         json.dump(tcache, f, indent=2)
             except Exception:
                 pass
-
-        # Remove from accounts.json
         accounts_file = "accounts.json"
         if os.path.exists(accounts_file):
             try:
@@ -860,13 +811,10 @@ async def handle_delete_account(request: web.Request) -> web.Response:
                             is_match = True
                     if not is_match:
                         new_existing.append(acc)
-
                 with open(accounts_file, "w", encoding="utf-8") as f:
                     json.dump(new_existing, f, indent=2)
             except Exception:
                 pass
-
-        # Remove matching devices from devices.json
         devices_file = "devices.json"
         if os.path.exists(devices_file):
             try:
@@ -889,16 +837,12 @@ async def handle_delete_account(request: web.Request) -> web.Response:
                         json.dump(devices_data, f, indent=4)
             except Exception:
                 pass
-
-        # Remove from in-memory bot_state.accounts & credentials
         for cid in candidate_ids:
             bot_state.accounts.pop(cid, None)
             bot_state.account_credentials.pop(cid, None)
             bot_state.auth_to_game_id.pop(cid, None)
             bot_state.game_to_auth_id.pop(cid, None)
             bot_state.account_token_map.pop(cid, None)
-
-        # Cancel matching worker tasks
         cancelled_keys = []
         for k, worker in list(bot_state.account_workers.items()):
             k_str = str(k)
@@ -914,20 +858,15 @@ async def handle_delete_account(request: web.Request) -> web.Response:
                 except Exception:
                     pass
                 cancelled_keys.append(k)
-
         for k in cancelled_keys:
             bot_state.account_workers.pop(k, None)
-
         for cid in candidate_ids:
             bot_state.close_writers_for_account(cid)
-
-        # Trigger on_account_deleted callback in Main.py if registered
         if "on_account_deleted" in bot_state.refresh_callbacks:
             try:
                 asyncio.create_task(bot_state.refresh_callbacks["on_account_deleted"](list(candidate_ids)))
             except Exception:
                 pass
-
         target_repr = req_uid or req_auth_uid
         bot_state.log(f"Account {target_repr} completely deleted from system and stopped.", "warning", target_repr)
         bot_state.recalc_totals()
@@ -998,22 +937,34 @@ async def handle_api_logs(request: web.Request) -> web.Response:
     return web.json_response({"logs": formatted_logs}, status=200)
 
 
-# ==================== START WEB DASHBOARD ====================
-
+# ═══════════════════════════════════════════════════════════════════
+#  START WEB DASHBOARD — DRIFT folder routing added
+# ═══════════════════════════════════════════════════════════════════
 async def start_web_dashboard(host: str = "0.0.0.0", port: int = 5000):
     app = web.Application()
-    app.router.add_get("/", handle_index)
-    app.router.add_post("/api/clanjoin", handle_api_clan_join)
-    app.router.add_get("/api/guildinfo", handle_api_guild_info)
-    app.router.add_get("/api/stats", handle_get_stats)
-    app.router.add_get("/api/logs", handle_api_logs)
-    app.router.add_post("/api/account/add", handle_add_account)
-    app.router.add_post("/api/account/delete", handle_delete_account)
-    app.router.add_post("/api/account/refresh", handle_refresh_account)
-    app.router.add_post("/api/account/restart", handle_restart_account)
-    app.router.add_post("/api/account/pause", handle_toggle_pause)
+
+    # ═══════════════════════════════════════════════════════
+    #  DRIFT Folder — HTML Page Routes
+    # ═══════════════════════════════════════════════════════
+    app.router.add_get("/",       handle_ffglory)      # Landing page
+    app.router.add_get("/login",  handle_login_page)   # Login page
+    app.router.add_get("/client", handle_client_page)  # User dashboard
+    app.router.add_get("/bot",    handle_bot_page)     # Bot admin panel
+
+    # ═══════════════════════════════════════════════════════
+    #  Bot APIs (unchanged)
+    # ═══════════════════════════════════════════════════════
+    app.router.add_post("/api/clanjoin",          handle_api_clan_join)
+    app.router.add_get ("/api/guildinfo",         handle_api_guild_info)
+    app.router.add_get ("/api/stats",             handle_get_stats)
+    app.router.add_get ("/api/logs",              handle_api_logs)
+    app.router.add_post("/api/account/add",       handle_add_account)
+    app.router.add_post("/api/account/delete",    handle_delete_account)
+    app.router.add_post("/api/account/refresh",   handle_refresh_account)
+    app.router.add_post("/api/account/restart",   handle_restart_account)
+    app.router.add_post("/api/account/pause",     handle_toggle_pause)
     app.router.add_post("/api/account/pause_all", handle_toggle_pause_all)
-    app.router.add_post("/api/logs/clear", handle_clear_logs)    
+    app.router.add_post("/api/logs/clear",        handle_clear_logs)
 
     runner = web.AppRunner(app)
     await runner.setup()
